@@ -361,6 +361,20 @@ function initContactForm() {
    les données viennent de la base — plus de mot de passe ni de
    données visibles dans le code source du navigateur.
    ========================================================= */
+// Correspondance onglet → droit nécessaire pour le voir (le tabId "panel-comptes" n'y
+// figure pas : il reste toujours visible, seul son contenu varie selon le rôle).
+const TAB_PERMISSION_MAP = {
+  'panel-messages': 'messages',
+  'panel-artists': 'artists',
+  'panel-formules': 'formules',
+  'panel-boissons': 'bar',
+  'panel-compta': 'compta',
+};
+let currentSession = { role: 'admin', permissions: [] };
+function canAccess(key) {
+  return currentSession.role === 'admin' || currentSession.permissions.includes(key);
+}
+
 function initGestionPage() {
   const loginShell = document.getElementById('login-shell');
   const adminShell = document.getElementById('admin-shell');
@@ -371,14 +385,45 @@ function initGestionPage() {
   const logoutBtn = document.getElementById('logout-btn');
   const userLabel = document.getElementById('current-user-label');
 
-  async function showAdmin(username) {
+  async function showAdmin(username, role, permissions) {
+    currentSession = { role: role || 'admin', permissions: permissions || [] };
     loginShell.style.display = 'none';
     adminShell.style.display = 'block';
-    if (userLabel) userLabel.textContent = username ? `Connecté en tant que ${username}` : '';
-    await Promise.all([
-      renderMessages(), renderArtistsAdmin(), renderFormulesAdmin(), renderAdminsAdmin(),
-      renderDrinksAdmin(), renderStockAdmin(), renderTransactionsAdmin(), renderComptaSummary(),
-    ]);
+    if (userLabel) {
+      const roleLabel = currentSession.role === 'admin' ? 'Administrateur' : 'Collaborateur';
+      userLabel.textContent = username ? `Connecté en tant que ${username} (${roleLabel})` : '';
+    }
+
+    // Masque les onglets auxquels ce compte n'a pas accès.
+    let firstVisibleTab = null;
+    document.querySelectorAll('.admin-tab').forEach(tab => {
+      const needed = TAB_PERMISSION_MAP[tab.dataset.target];
+      const visible = !needed || canAccess(needed);
+      tab.style.display = visible ? '' : 'none';
+      if (visible && !firstVisibleTab) firstVisibleTab = tab;
+    });
+    // Si l'onglet actuellement actif vient d'être masqué, on bascule sur le premier visible.
+    const activeTab = document.querySelector('.admin-tab.active');
+    if (activeTab && activeTab.style.display === 'none' && firstVisibleTab) {
+      document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+      firstVisibleTab.classList.add('active');
+      document.getElementById(firstVisibleTab.dataset.target)?.classList.add('active');
+    }
+
+    // La gestion des comptes (créer/lister/supprimer) reste réservée aux Administrateurs ;
+    // le changement de son propre mot de passe, lui, reste toujours visible.
+    const accountsSection = document.getElementById('accounts-management-section');
+    if (accountsSection) accountsSection.style.display = currentSession.role === 'admin' ? '' : 'none';
+
+    const tasks = [];
+    if (canAccess('messages')) tasks.push(renderMessages());
+    if (canAccess('artists')) tasks.push(renderArtistsAdmin());
+    if (canAccess('formules')) tasks.push(renderFormulesAdmin());
+    if (canAccess('bar')) tasks.push(renderDrinksAdmin());
+    if (canAccess('compta')) { tasks.push(renderStockAdmin()); tasks.push(renderTransactionsAdmin()); tasks.push(renderComptaSummary()); }
+    if (currentSession.role === 'admin') tasks.push(renderAdminsAdmin());
+    await Promise.all(tasks);
   }
   function showLogin() {
     adminShell.style.display = 'none';
@@ -386,7 +431,9 @@ function initGestionPage() {
   }
 
   // Vérifie si une session admin est déjà active côté serveur
-  api('/api/session').then(({ isAdmin, username }) => { if (isAdmin) showAdmin(username); }).catch(() => {});
+  api('/api/session').then(({ isAdmin, username, role, permissions }) => {
+    if (isAdmin) showAdmin(username, role, permissions);
+  }).catch(() => {});
 
   loginForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -396,7 +443,7 @@ function initGestionPage() {
     try {
       const res = await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password: pwd }) });
       loginForm.reset();
-      showAdmin(res.username);
+      showAdmin(res.username, res.role, res.permissions);
     } catch (err) {
       errorMsg.textContent = err.message;
       errorMsg.style.display = 'block';
@@ -764,6 +811,8 @@ async function renderComptaSummary() {
 }
 
 /* --- Comptes Gestion (admin) --- */
+const PERMISSION_LABELS = { messages: 'Contact', artists: 'Artistes', formules: 'Formules', bar: 'Bar', compta: 'Comptabilité' };
+
 async function renderAdminsAdmin() {
   const tbody = document.getElementById('admins-body');
   if (!tbody) return;
@@ -771,16 +820,24 @@ async function renderAdminsAdmin() {
   try {
     list = await api('/api/admins');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="3" style="color:var(--danger)">${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--danger)">${escapeHtml(err.message)}</td></tr>`;
     return;
   }
-  tbody.innerHTML = list.map(a => `
+  const adminCount = list.filter(a => a.role === 'admin').length;
+  tbody.innerHTML = list.map(a => {
+    const isAdmin = a.role === 'admin';
+    const sections = isAdmin ? 'Toutes' : (a.permissions.map(p => PERMISSION_LABELS[p] || p).join(', ') || '—');
+    const isLastAdmin = isAdmin && adminCount <= 1;
+    return `
     <tr>
       <td>${escapeHtml(a.username)}</td>
+      <td>${isAdmin ? 'Administrateur' : 'Collaborateur'}</td>
+      <td style="font-size:13px; color:var(--text-muted);">${escapeHtml(sections)}</td>
       <td>${escapeHtml(new Date(a.created_at).toLocaleDateString('fr-FR'))}</td>
-      <td>${list.length > 1 ? `<button class="mini-btn danger" onclick="deleteAdminAccount(${a.id})">Retirer</button>` : `<span style="color:var(--text-muted);font-size:12.5px">Dernier compte</span>`}</td>
+      <td>${(list.length > 1 && !isLastAdmin) ? `<button class="mini-btn danger" onclick="deleteAdminAccount(${a.id})">Retirer</button>` : `<span style="color:var(--text-muted);font-size:12.5px">${isLastAdmin ? 'Dernier admin' : 'Dernier compte'}</span>`}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 async function deleteAdminAccount(id) {
   if (!confirm('Retirer ce compte Gestion ? Cette action est définitive.')) return;
@@ -794,6 +851,12 @@ function initAdminAccountForm() {
   const form = document.getElementById('admin-account-form');
   if (!form) return;
   const errorBox = document.getElementById('account-form-error');
+  const roleSelect = document.getElementById('c-role');
+  const permsGroup = document.getElementById('c-permissions-group');
+
+  roleSelect?.addEventListener('change', () => {
+    if (permsGroup) permsGroup.style.display = roleSelect.value === 'staff' ? 'block' : 'none';
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -802,17 +865,58 @@ function initAdminAccountForm() {
     const username = document.getElementById('c-username').value.trim();
     const password = document.getElementById('c-password').value;
     const confirmPwd = document.getElementById('c-password-confirm').value;
+    const role = roleSelect ? roleSelect.value : 'admin';
+    const permissions = Array.from(form.querySelectorAll('input[name="permissions"]:checked')).map(cb => cb.value);
 
     if (password !== confirmPwd) {
       errorBox.textContent = 'Les deux mots de passe ne correspondent pas.';
       errorBox.style.display = 'block';
       return;
     }
+    if (role === 'staff' && permissions.length === 0) {
+      errorBox.textContent = 'Cochez au moins une section pour un compte Collaborateur.';
+      errorBox.style.display = 'block';
+      return;
+    }
 
     try {
-      await api('/api/admins', { method: 'POST', body: JSON.stringify({ username, password }) });
+      await api('/api/admins', { method: 'POST', body: JSON.stringify({ username, password, role, permissions }) });
       form.reset();
+      if (permsGroup) permsGroup.style.display = 'none';
       renderAdminsAdmin();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    }
+  });
+}
+
+/* --- Changer son propre mot de passe (n'importe quel compte) --- */
+function initChangePasswordForm() {
+  const form = document.getElementById('change-password-form');
+  if (!form) return;
+  const errorBox = document.getElementById('change-password-error');
+  const successBox = document.getElementById('change-password-success');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+    successBox.style.display = 'none';
+
+    const currentPassword = document.getElementById('cp-current').value;
+    const newPassword = document.getElementById('cp-new').value;
+    const confirmNew = document.getElementById('cp-confirm').value;
+
+    if (newPassword !== confirmNew) {
+      errorBox.textContent = 'Les deux nouveaux mots de passe ne correspondent pas.';
+      errorBox.style.display = 'block';
+      return;
+    }
+
+    try {
+      await api('/api/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+      form.reset();
+      successBox.style.display = 'block';
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.style.display = 'block';
@@ -830,6 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initArtistAdminForm();
   initFormuleAdminForm();
   initAdminAccountForm();
+  initChangePasswordForm();
   initDrinkAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();
@@ -905,6 +1010,7 @@ function reinitPageScripts() {
   initArtistAdminForm();
   initFormuleAdminForm();
   initAdminAccountForm();
+  initChangePasswordForm();
   initDrinkAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();

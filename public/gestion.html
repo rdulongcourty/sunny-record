@@ -132,20 +132,62 @@
 
       <!-- Onglet 4 : comptes -->
       <div id="panel-comptes" class="admin-panel" style="margin-top:26px;">
-        <div class="notice-banner">
-          Chaque compte a son propre identifiant et mot de passe. Les mots de passe sont hachés avant d'être stockés — personne, y compris vous en relisant le code, ne peut les retrouver en clair.
+
+        <!-- Toujours visible, quel que soit le compte connecté -->
+        <div class="section-head" style="margin-bottom:16px;">
+          <span class="eyebrow">Mon compte</span>
+          <h2 style="font-size:20px; margin-top:6px;">Changer mon mot de passe</h2>
         </div>
-        <form id="admin-account-form" class="admin-form-grid">
-          <div class="field"><label for="c-username">Identifiant</label><input type="text" id="c-username" name="username" required></div>
-          <div class="field"><label for="c-password">Mot de passe (8 caractères min.)</label><input type="password" id="c-password" name="password" minlength="8" required></div>
-          <div class="field full"><label for="c-password-confirm">Confirmer le mot de passe</label><input type="password" id="c-password-confirm" minlength="8" required></div>
-          <span class="login-error" id="account-form-error" style="display:none;"></span>
-          <div class="full"><button type="submit" class="btn btn-gold">Créer le compte</button></div>
+        <form id="change-password-form" class="admin-form-grid" style="margin-bottom:40px;">
+          <div class="field"><label for="cp-current">Mot de passe actuel</label><input type="password" id="cp-current" name="currentPassword" required></div>
+          <div class="field"><label for="cp-new">Nouveau mot de passe (8 caractères min.)</label><input type="password" id="cp-new" name="newPassword" minlength="8" required></div>
+          <div class="field full"><label for="cp-confirm">Confirmer le nouveau mot de passe</label><input type="password" id="cp-confirm" minlength="8" required></div>
+          <span class="login-error" id="change-password-error" style="display:none;"></span>
+          <p class="form-note" id="change-password-success" style="display:none; color:var(--gold-soft);">Mot de passe mis à jour.</p>
+          <div class="full"><button type="submit" class="btn btn-outline">Mettre à jour mon mot de passe</button></div>
         </form>
-        <table class="data-table">
-          <thead><tr><th>Identifiant</th><th>Créé le</th><th>Actions</th></tr></thead>
-          <tbody id="admins-body"></tbody>
-        </table>
+
+        <!-- Visible seulement pour les comptes "Administrateur" -->
+        <div id="accounts-management-section">
+          <div class="notice-banner">
+            Chaque compte a son propre identifiant et mot de passe. Les mots de passe sont hachés avant d'être stockés — personne, y compris vous en relisant le code, ne peut les retrouver en clair.
+          </div>
+          <div class="section-head" style="margin-bottom:16px;">
+            <span class="eyebrow">Nouveau compte</span>
+            <h2 style="font-size:20px; margin-top:6px;">Créer un accès pour quelqu'un d'autre</h2>
+          </div>
+          <form id="admin-account-form" class="admin-form-grid">
+            <div class="field"><label for="c-username">Identifiant</label><input type="text" id="c-username" name="username" required></div>
+            <div class="field"><label for="c-password">Mot de passe (8 caractères min.)</label><input type="password" id="c-password" name="password" minlength="8" required></div>
+            <div class="field full"><label for="c-password-confirm">Confirmer le mot de passe</label><input type="password" id="c-password-confirm" minlength="8" required></div>
+
+            <div class="field full">
+              <label for="c-role">Type de compte</label>
+              <select id="c-role" name="role">
+                <option value="admin">Administrateur — accès total (y compris gérer les comptes)</option>
+                <option value="staff">Collaborateur — accès limité aux sections cochées ci-dessous</option>
+              </select>
+            </div>
+
+            <div class="field full" id="c-permissions-group" style="display:none;">
+              <label>Sections accessibles</label>
+              <div style="display:flex; flex-wrap:wrap; gap:16px; margin-top:8px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="messages"> Demandes de contact</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="artists"> Artistes</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="formules"> Formules</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="bar"> Bar</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="compta"> Comptabilité</label>
+              </div>
+            </div>
+
+            <span class="login-error" id="account-form-error" style="display:none;"></span>
+            <div class="full"><button type="submit" class="btn btn-gold">Créer le compte</button></div>
+          </form>
+          <table class="data-table">
+            <thead><tr><th>Identifiant</th><th>Type</th><th>Sections</th><th>Créé le</th><th>Actions</th></tr></thead>
+            <tbody id="admins-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Onglet 4 : boissons -->

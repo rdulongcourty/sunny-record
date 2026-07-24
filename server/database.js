@@ -46,6 +46,8 @@ const SCHEMA = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
+    permissions TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -161,6 +163,12 @@ async function init() {
   if ((await getMeta('migration_cover_image')) !== 'done') {
     await ensureColumn('artists', 'cover_image', 'TEXT');
     await setMeta('migration_cover_image', 'done');
+  }
+  if ((await getMeta('migration_admin_roles')) !== 'done') {
+    // DEFAULT 'admin' : les comptes déjà créés gardent leur accès complet après cette mise à jour.
+    await ensureColumn('admins', 'role', "TEXT NOT NULL DEFAULT 'admin'");
+    await ensureColumn('admins', 'permissions', 'TEXT');
+    await setMeta('migration_admin_roles', 'done');
   }
 
   const artistCount = (await get('SELECT COUNT(*) AS c FROM artists')).c;

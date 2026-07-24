@@ -28,6 +28,30 @@ function requireAdmin(req, res, next) {
   return res.status(401).json({ error: 'Non autorisé — merci de vous connecter.' });
 }
 
+// Sections d'accès possibles pour un compte "Collaborateur" à droits limités.
+const PERMISSION_KEYS = ['messages', 'artists', 'formules', 'bar', 'compta'];
+
+// Seuls les comptes "Administrateur" ont un accès total et peuvent gérer les
+// autres comptes ; un compte "Collaborateur" n'a que les sections cochées à
+// sa création (voir req.session.permissions).
+function requirePermission(key) {
+  return (req, res, next) => {
+    if (!req.session || !req.session.isAdmin) {
+      return res.status(401).json({ error: 'Non autorisé — merci de vous connecter.' });
+    }
+    if (req.session.role === 'admin') return next();
+    const perms = req.session.permissions || [];
+    if (perms.includes(key)) return next();
+    return res.status(403).json({ error: "Vous n'avez pas accès à cette section." });
+  };
+}
+
+// Réservé strictement aux comptes "Administrateur" (gestion des comptes eux-mêmes).
+function requireSuperAdmin(req, res, next) {
+  if (req.session && req.session.isAdmin && req.session.role === 'admin') return next();
+  return res.status(403).json({ error: 'Seul un compte Administrateur peut faire ça.' });
+}
+
 // --- Upload audio + pochette ---
 // Les fichiers sont gardés en mémoire (pas sur disque) puis encodés en base64
 // et stockés directement dans la base de données Turso — aucun disque
@@ -70,7 +94,9 @@ app.post('/api/login', h(async (req, res) => {
   req.session.isAdmin = true;
   req.session.adminId = admin.id;
   req.session.username = admin.username;
-  res.json({ ok: true, username: admin.username });
+  req.session.role = admin.role || 'admin';
+  req.session.permissions = admin.permissions ? JSON.parse(admin.permissions) : [];
+  res.json({ ok: true, username: admin.username, role: req.session.role, permissions: req.session.permissions });
 }));
 
 app.post('/api/logout', (req, res) => {
@@ -78,31 +104,73 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/session', (req, res) => {
-  res.json({ isAdmin: !!(req.session && req.session.isAdmin), username: (req.session && req.session.username) || null });
+  if (!req.session || !req.session.isAdmin) return res.json({ isAdmin: false, username: null });
+  res.json({
+    isAdmin: true,
+    username: req.session.username,
+    role: req.session.role || 'admin',
+    permissions: req.session.permissions || [],
+  });
 });
 
-// ==================== COMPTES GESTION (admins) ====================
-// Réservé aux admins connectés. Le mot de passe n'est jamais renvoyé au client.
-app.get('/api/admins', requireAdmin, h(async (req, res) => {
-  res.json(await db.all('SELECT id, username, created_at FROM admins ORDER BY created_at ASC'));
+// Changement de mot de passe par la personne elle-même (n'importe quel compte
+// connecté, quels que soient ses droits — ça ne concerne que son propre compte).
+app.post('/api/change-password', requireAdmin, h(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Mot de passe actuel et nouveau mot de passe requis.' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Le nouveau mot de passe doit faire au moins 8 caractères.' });
+
+  const admin = await db.get('SELECT * FROM admins WHERE id = ?', [req.session.adminId]);
+  if (!admin || !verifyPassword(currentPassword, admin.password_hash)) {
+    return res.status(401).json({ error: 'Mot de passe actuel incorrect.' });
+  }
+  const hash = hashPassword(newPassword);
+  await db.run('UPDATE admins SET password_hash = ? WHERE id = ?', [hash, admin.id]);
+  res.json({ ok: true });
 }));
 
-app.post('/api/admins', requireAdmin, h(async (req, res) => {
-  const { username, password } = req.body;
+// ==================== COMPTES GESTION (admins) ====================
+// Réservé aux comptes "Administrateur". Le mot de passe n'est jamais renvoyé au client.
+app.get('/api/admins', requireSuperAdmin, h(async (req, res) => {
+  const rows = await db.all('SELECT id, username, role, permissions, created_at FROM admins ORDER BY created_at ASC');
+  res.json(rows.map(r => ({ ...r, permissions: r.permissions ? JSON.parse(r.permissions) : [] })));
+}));
+
+app.post('/api/admins', requireSuperAdmin, h(async (req, res) => {
+  const { username, password, role, permissions } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Identifiant et mot de passe requis." });
   if (password.length < 8) return res.status(400).json({ error: 'Le mot de passe doit faire au moins 8 caractères.' });
+
+  const finalRole = role === 'staff' ? 'staff' : 'admin';
+  let finalPermissions = null;
+  if (finalRole === 'staff') {
+    const perms = Array.isArray(permissions) ? permissions.filter(p => PERMISSION_KEYS.includes(p)) : [];
+    finalPermissions = JSON.stringify(perms);
+  }
 
   const existing = await db.get('SELECT id FROM admins WHERE username = ?', [username]);
   if (existing) return res.status(409).json({ error: 'Cet identifiant existe déjà.' });
 
   const hash = hashPassword(password);
-  const info = await db.run('INSERT INTO admins (username, password_hash) VALUES (?, ?)', [username, hash]);
-  res.json(await db.get('SELECT id, username, created_at FROM admins WHERE id = ?', [info.lastInsertRowid]));
+  const info = await db.run(
+    'INSERT INTO admins (username, password_hash, role, permissions) VALUES (?, ?, ?, ?)',
+    [username, hash, finalRole, finalPermissions]
+  );
+  const created = await db.get('SELECT id, username, role, permissions, created_at FROM admins WHERE id = ?', [info.lastInsertRowid]);
+  res.json({ ...created, permissions: created.permissions ? JSON.parse(created.permissions) : [] });
 }));
 
-app.delete('/api/admins/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/admins/:id', requireSuperAdmin, h(async (req, res) => {
   const total = (await db.get('SELECT COUNT(*) AS c FROM admins')).c;
   if (total <= 1) return res.status(400).json({ error: "Impossible de supprimer le dernier compte Gestion restant." });
+
+  const target = await db.get('SELECT role FROM admins WHERE id = ?', [req.params.id]);
+  if (target && target.role === 'admin') {
+    const adminCount = (await db.get("SELECT COUNT(*) AS c FROM admins WHERE role = 'admin'")).c;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: "Impossible de supprimer le dernier compte Administrateur — il ne resterait plus personne pour gérer les comptes." });
+    }
+  }
 
   await db.run('DELETE FROM admins WHERE id = ?', [req.params.id]);
 
@@ -136,7 +204,7 @@ app.get('/api/artists/:id/track', h(async (req, res) => {
 }));
 
 // Ajout : réservé aux admins connectés, upload audio + pochette inclus dans le même formulaire
-app.post('/api/artists', requireAdmin, (req, res) => {
+app.post('/api/artists', requirePermission('artists'), (req, res) => {
   uploadArtistFiles(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
     try {
@@ -174,7 +242,7 @@ app.post('/api/artists', requireAdmin, (req, res) => {
   });
 });
 
-app.delete('/api/artists/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/artists/:id', requirePermission('artists'), h(async (req, res) => {
   await db.run('DELETE FROM artists WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
@@ -184,14 +252,14 @@ app.get('/api/formules', h(async (req, res) => {
   res.json(await db.all('SELECT * FROM formules ORDER BY created_at ASC'));
 }));
 
-app.post('/api/formules', requireAdmin, h(async (req, res) => {
+app.post('/api/formules', requirePermission('formules'), h(async (req, res) => {
   const { nom, prix, description } = req.body;
   if (!nom) return res.status(400).json({ error: 'Le nom de la formule est obligatoire.' });
   const info = await db.run('INSERT INTO formules (nom, prix, description) VALUES (?, ?, ?)', [nom, prix || '', description || '']);
   res.json(await db.get('SELECT * FROM formules WHERE id = ?', [info.lastInsertRowid]));
 }));
 
-app.delete('/api/formules/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/formules/:id', requirePermission('formules'), h(async (req, res) => {
   await db.run('DELETE FROM formules WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
@@ -206,14 +274,14 @@ app.post('/api/messages', h(async (req, res) => {
 }));
 
 // Lecture / gestion : réservé aux admins
-app.get('/api/messages', requireAdmin, h(async (req, res) => {
+app.get('/api/messages', requirePermission('messages'), h(async (req, res) => {
   res.json(await db.all('SELECT * FROM messages ORDER BY created_at DESC'));
 }));
-app.patch('/api/messages/:id/read', requireAdmin, h(async (req, res) => {
+app.patch('/api/messages/:id/read', requirePermission('messages'), h(async (req, res) => {
   await db.run("UPDATE messages SET statut = 'read' WHERE id = ?", [req.params.id]);
   res.json({ ok: true });
 }));
-app.delete('/api/messages/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/messages/:id', requirePermission('messages'), h(async (req, res) => {
   await db.run('DELETE FROM messages WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
@@ -224,7 +292,7 @@ app.get('/api/drinks', h(async (req, res) => {
   res.json(await db.all('SELECT * FROM drinks ORDER BY categorie ASC, nom ASC'));
 }));
 
-app.post('/api/drinks', requireAdmin, h(async (req, res) => {
+app.post('/api/drinks', requirePermission('bar'), h(async (req, res) => {
   const { nom, categorie, prix, description } = req.body;
   if (!nom || prix === undefined || prix === '') return res.status(400).json({ error: 'Le nom et le prix sont obligatoires.' });
   const prixNum = parseFloat(String(prix).replace(',', '.'));
@@ -237,7 +305,7 @@ app.post('/api/drinks', requireAdmin, h(async (req, res) => {
   res.json(await db.get('SELECT * FROM drinks WHERE id = ?', [info.lastInsertRowid]));
 }));
 
-app.delete('/api/drinks/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/drinks/:id', requirePermission('bar'), h(async (req, res) => {
   await db.run('DELETE FROM drinks WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
@@ -246,11 +314,11 @@ app.delete('/api/drinks/:id', requireAdmin, h(async (req, res) => {
 // Tout est réservé aux admins connectés — données sensibles de l'entreprise.
 
 // --- Entrées de stock ---
-app.get('/api/stock', requireAdmin, h(async (req, res) => {
+app.get('/api/stock', requirePermission('compta'), h(async (req, res) => {
   res.json(await db.all('SELECT * FROM stock_entries ORDER BY date DESC, created_at DESC'));
 }));
 
-app.post('/api/stock', requireAdmin, h(async (req, res) => {
+app.post('/api/stock', requirePermission('compta'), h(async (req, res) => {
   const { produit, quantite, prix_unitaire, date, notes } = req.body;
   if (!produit || quantite === undefined || !date) {
     return res.status(400).json({ error: 'Produit, quantité et date sont obligatoires.' });
@@ -266,17 +334,17 @@ app.post('/api/stock', requireAdmin, h(async (req, res) => {
   res.json(await db.get('SELECT * FROM stock_entries WHERE id = ?', [info.lastInsertRowid]));
 }));
 
-app.delete('/api/stock/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/stock/:id', requirePermission('compta'), h(async (req, res) => {
   await db.run('DELETE FROM stock_entries WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
 
 // --- Transactions (dépenses / entrées d'argent) ---
-app.get('/api/transactions', requireAdmin, h(async (req, res) => {
+app.get('/api/transactions', requirePermission('compta'), h(async (req, res) => {
   res.json(await db.all('SELECT * FROM transactions ORDER BY date DESC, created_at DESC'));
 }));
 
-app.post('/api/transactions', requireAdmin, h(async (req, res) => {
+app.post('/api/transactions', requirePermission('compta'), h(async (req, res) => {
   const { type, montant, categorie, description, date } = req.body;
   if (!type || !['entree', 'depense'].includes(type)) return res.status(400).json({ error: "Type invalide (entrée ou dépense)." });
   if (montant === undefined || montant === '' || !date) return res.status(400).json({ error: 'Montant et date sont obligatoires.' });
@@ -290,13 +358,13 @@ app.post('/api/transactions', requireAdmin, h(async (req, res) => {
   res.json(await db.get('SELECT * FROM transactions WHERE id = ?', [info.lastInsertRowid]));
 }));
 
-app.delete('/api/transactions/:id', requireAdmin, h(async (req, res) => {
+app.delete('/api/transactions/:id', requirePermission('compta'), h(async (req, res) => {
   await db.run('DELETE FROM transactions WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
 
 // Résumé : solde total + totaux par semaine, pour le graphique et les cartes de synthèse
-app.get('/api/transactions/summary', requireAdmin, h(async (req, res) => {
+app.get('/api/transactions/summary', requirePermission('compta'), h(async (req, res) => {
   const rows = await db.all('SELECT type, montant, date FROM transactions');
 
   let totalEntrees = 0, totalDepenses = 0;
