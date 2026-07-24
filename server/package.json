@@ -1,0 +1,20 @@
+{
+  "name": "the-horde-studio-server",
+  "version": "1.0.0",
+  "description": "API + base de données pour le site The Horde Studio",
+  "main": "server.js",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "create-admin": "node create-admin.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1"
+  }
+}

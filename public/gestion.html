@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion — The Horde Studio</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="assets/logo/favicon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <nav class="nav">
+    <a href="index.html" class="logo"><img src="assets/logo/logo-nav.jpg" alt="" class="logo-mark"> THE HORDE STUDIO</a>
+    <button class="nav-toggle" aria-label="Ouvrir le menu">☰</button>
+    <div class="nav-links">
+      <a href="index.html">Accueil</a>
+      <a href="artistes.html">Artistes</a>
+      <a href="formules.html">Formules</a>
+      <a href="bar.html">Bar</a>
+      <a href="contact.html">Contact</a>
+      <a href="gestion.html" class="nav-cta active">Gestion</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ÉCRAN DE CONNEXION -->
+  <div id="login-shell" class="login-shell">
+    <div class="login-card">
+      <span class="eyebrow">Accès réservé</span>
+      <h2 style="margin-top:12px;">Espace Gestion</h2>
+      <p>Réservé aux responsables du label. Entrez le mot de passe pour continuer.</p>
+      <form id="login-form">
+        <div class="field">
+          <label for="login-username">Identifiant</label>
+          <input type="text" id="login-username" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="login-password">Mot de passe</label>
+          <input type="password" id="login-password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-gold" style="width:100%; justify-content:center;">Se connecter</button>
+        <p class="login-error" id="login-error">Identifiant ou mot de passe incorrect.</p>
+      </form>
+    </div>
+  </div>
+
+  <!-- PANNEAU ADMIN -->
+  <div id="admin-shell" style="display:none;">
+    <section class="wrap block tight">
+
+      <div class="notice-banner">
+        Ces données sont maintenant stockées dans une vraie base de données sur le serveur (fichier <code>server/data/sunny.db</code>) — elles sont partagées entre tous les appareils/navigateurs, contrairement à une démo purement locale.
+      </div>
+
+      <div class="admin-bar">
+        <div>
+          <span class="eyebrow">Espace patron</span>
+          <h1 style="font-size:26px; margin-top:8px;">Tableau de gestion</h1>
+          <p style="color:var(--text-muted); font-size:13.5px; margin-top:6px;" id="current-user-label"></p>
+        </div>
+        <button id="logout-btn" class="btn btn-outline">Se déconnecter</button>
+      </div>
+
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-target="panel-messages">Demandes de contact</button>
+        <button class="admin-tab" data-target="panel-artists">Artistes</button>
+        <button class="admin-tab" data-target="panel-formules">Formules</button>
+        <button class="admin-tab" data-target="panel-boissons">Bar</button>
+        <button class="admin-tab" data-target="panel-compta">Comptabilité</button>
+        <button class="admin-tab" data-target="panel-comptes">Comptes</button>
+      </div>
+
+      <!-- Onglet 1 : messages -->
+      <div id="panel-messages" class="admin-panel active" style="margin-top:26px;">
+        <table class="data-table">
+          <thead>
+            <tr><th>Date</th><th>De</th><th>Sujet</th><th>Statut</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="messages-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet 2 : artistes -->
+      <div id="panel-artists" class="admin-panel" style="margin-top:26px;">
+        <form id="artist-admin-form" class="admin-form-grid">
+          <div class="field"><label for="a-nom">Nom d'artiste</label><input type="text" id="a-nom" name="nom" required></div>
+          <div class="field"><label for="a-genre">Genre</label><input type="text" id="a-genre" name="genre" placeholder="Ex : Death Metal, Hardcore..." required></div>
+          <div class="field">
+            <label for="a-statut">Statut</label>
+            <select id="a-statut" name="statut">
+              <option>Signé</option>
+              <option>En discussion</option>
+              <option>Ancien artiste</option>
+            </select>
+          </div>
+          <div class="field full"><label for="a-bio">Bio courte (optionnel)</label><input type="text" id="a-bio" name="bio" placeholder="Une phrase qui présente l'artiste"></div>
+          <div class="field"><label for="a-track-titre">Titre du morceau (optionnel)</label><input type="text" id="a-track-titre" name="trackTitre" placeholder="Ex : Horizon"></div>
+          <div class="field">
+            <label for="a-audio">Fichier audio (optionnel, .mp3/.wav — 8 Mo max)</label>
+            <input type="file" id="a-audio" name="audio" accept="audio/*">
+            <span class="login-error" id="a-audio-error" style="display:none;"></span>
+          </div>
+          <div class="field full">
+            <label for="a-cover">Pochette d'album (optionnel, image — 4 Mo max)</label>
+            <input type="file" id="a-cover" name="cover" accept="image/*">
+          </div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter l'artiste</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Nom</th><th>Genre</th><th>Statut</th><th>Morceau</th><th>Actions</th></tr></thead>
+          <tbody id="artists-admin-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet 3 : formules -->
+      <div id="panel-formules" class="admin-panel" style="margin-top:26px;">
+        <form id="formule-admin-form" class="admin-form-grid">
+          <div class="field"><label for="f-nom">Nom de la formule</label><input type="text" id="f-nom" name="nom" required></div>
+          <div class="field"><label for="f-prix">Prix</label><input type="text" id="f-prix" name="prix" placeholder="Ex : 49 €/mois" required></div>
+          <div class="field full"><label for="f-desc">Description</label><input type="text" id="f-desc" name="description" required></div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter la formule</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Formule</th><th>Prix</th><th>Description</th><th>Actions</th></tr></thead>
+          <tbody id="formules-admin-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet 4 : comptes -->
+      <div id="panel-comptes" class="admin-panel" style="margin-top:26px;">
+        <div class="notice-banner">
+          Chaque compte a son propre identifiant et mot de passe. Les mots de passe sont hachés avant d'être stockés — personne, y compris vous en relisant le code, ne peut les retrouver en clair.
+        </div>
+        <form id="admin-account-form" class="admin-form-grid">
+          <div class="field"><label for="c-username">Identifiant</label><input type="text" id="c-username" name="username" required></div>
+          <div class="field"><label for="c-password">Mot de passe (8 caractères min.)</label><input type="password" id="c-password" name="password" minlength="8" required></div>
+          <div class="field full"><label for="c-password-confirm">Confirmer le mot de passe</label><input type="password" id="c-password-confirm" minlength="8" required></div>
+          <span class="login-error" id="account-form-error" style="display:none;"></span>
+          <div class="full"><button type="submit" class="btn btn-gold">Créer le compte</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Identifiant</th><th>Créé le</th><th>Actions</th></tr></thead>
+          <tbody id="admins-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet 4 : boissons -->
+      <div id="panel-boissons" class="admin-panel" style="margin-top:26px;">
+        <form id="drink-admin-form" class="admin-form-grid">
+          <div class="field"><label for="d-nom">Nom de la boisson</label><input type="text" id="d-nom" name="nom" required></div>
+          <div class="field">
+            <label for="d-categorie">Catégorie</label>
+            <select id="d-categorie" name="categorie">
+              <option value="Alcoolisée">Alcoolisée</option>
+              <option value="Non-alcoolisée">Non-alcoolisée</option>
+            </select>
+          </div>
+          <div class="field"><label for="d-prix">Prix (€)</label><input type="number" id="d-prix" name="prix" step="0.10" min="0" required></div>
+          <div class="field full"><label for="d-desc">Description (optionnel)</label><input type="text" id="d-desc" name="description" placeholder="Ex : Rhum, menthe, citron vert"></div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter la boisson</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Boisson</th><th>Catégorie</th><th>Prix</th><th>Actions</th></tr></thead>
+          <tbody id="drinks-admin-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet 5 : comptabilité -->
+      <div id="panel-compta" class="admin-panel" style="margin-top:26px;">
+
+        <div class="stats-bar" style="margin-bottom:30px;">
+          <div class="stat"><div class="val" id="compta-total-entrees">—</div><div class="lbl">Total des entrées</div></div>
+          <div class="stat"><div class="val" id="compta-total-depenses">—</div><div class="lbl">Total des dépenses</div></div>
+          <div class="stat"><div class="val" id="compta-solde">—</div><div class="lbl">Solde de la société</div></div>
+        </div>
+
+        <div class="section-head" style="margin-bottom:20px;">
+          <span class="eyebrow">Vue d'ensemble</span>
+          <h2 style="font-size:22px; margin-top:8px;">Dépenses et entrées par semaine</h2>
+        </div>
+        <div style="background:var(--bg-panel); border:1px solid var(--line); border-radius:var(--radius); padding:24px; margin-bottom:40px;">
+          <canvas id="compta-chart" height="90"></canvas>
+        </div>
+
+        <div class="section-head" style="margin-bottom:20px;">
+          <span class="eyebrow">Stock</span>
+          <h2 style="font-size:22px; margin-top:8px;">Entrées de stock</h2>
+        </div>
+        <form id="stock-admin-form" class="admin-form-grid">
+          <div class="field"><label for="s-produit">Produit</label><input type="text" id="s-produit" name="produit" placeholder="Ex : Bière pression (fût 30L)" required></div>
+          <div class="field"><label for="s-quantite">Quantité</label><input type="number" id="s-quantite" name="quantite" step="1" required></div>
+          <div class="field"><label for="s-prix">Prix unitaire (€)</label><input type="number" id="s-prix" name="prix_unitaire" step="0.01" min="0"></div>
+          <div class="field"><label for="s-date">Date</label><input type="date" id="s-date" name="date" required></div>
+          <div class="field full"><label for="s-notes">Notes (optionnel)</label><input type="text" id="s-notes" name="notes" placeholder="Fournisseur, remarque..."></div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter l'entrée de stock</button></div>
+        </form>
+        <table class="data-table" style="margin-bottom:40px;">
+          <thead><tr><th>Date</th><th>Produit</th><th>Quantité</th><th>Prix unitaire</th><th>Notes</th><th>Actions</th></tr></thead>
+          <tbody id="stock-admin-body"></tbody>
+        </table>
+
+        <div class="section-head" style="margin-bottom:20px;">
+          <span class="eyebrow">Comptes de la société</span>
+          <h2 style="font-size:22px; margin-top:8px;">Dépenses &amp; entrées d'argent</h2>
+        </div>
+        <form id="transaction-admin-form" class="admin-form-grid">
+          <div class="field">
+            <label for="t-type">Type</label>
+            <select id="t-type" name="type">
+              <option value="entree">Entrée d'argent</option>
+              <option value="depense">Dépense</option>
+            </select>
+          </div>
+          <div class="field"><label for="t-montant">Montant (€)</label><input type="number" id="t-montant" name="montant" step="0.01" min="0" required></div>
+          <div class="field"><label for="t-categorie">Catégorie (optionnel)</label><input type="text" id="t-categorie" name="categorie" placeholder="Ex : Loyer, Billetterie, Bar..."></div>
+          <div class="field"><label for="t-date">Date</label><input type="date" id="t-date" name="date" required></div>
+          <div class="field full"><label for="t-description">Description (optionnel)</label><input type="text" id="t-description" name="description"></div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter la transaction</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Montant</th><th>Catégorie</th><th>Description</th><th>Actions</th></tr></thead>
+          <tbody id="transactions-admin-body"></tbody>
+        </table>
+      </div>
+
+    </section>
+  </div>
+
+</main>
+
+<script src="js/main.js"></script>
+</body>
+</html>
