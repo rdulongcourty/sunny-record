@@ -368,6 +368,7 @@ const TAB_PERMISSION_MAP = {
   'panel-artists': 'artists',
   'panel-formules': 'formules',
   'panel-boissons': 'bar',
+  'panel-factures': 'factures',
   'panel-compta': 'compta',
 };
 let currentSession = { role: 'admin', permissions: [] };
@@ -421,6 +422,7 @@ function initGestionPage() {
     if (canAccess('artists')) tasks.push(renderArtistsAdmin());
     if (canAccess('formules')) tasks.push(renderFormulesAdmin());
     if (canAccess('bar')) tasks.push(renderDrinksAdmin());
+    if (canAccess('factures')) tasks.push(renderInvoicesAdmin());
     if (canAccess('compta')) { tasks.push(renderStockAdmin()); tasks.push(renderTransactionsAdmin()); tasks.push(renderComptaSummary()); }
     if (currentSession.role === 'admin') tasks.push(renderAdminsAdmin());
     await Promise.all(tasks);
@@ -681,6 +683,279 @@ function initStockAdminForm() {
   });
 }
 
+/* =========================================================
+   FACTURES — formulaire à lignes dynamiques + génération PDF
+   ========================================================= */
+let jsPdfLoading = null;
+function ensureJsPDF() {
+  if (window.jspdf) return Promise.resolve();
+  if (jsPdfLoading) return jsPdfLoading;
+  jsPdfLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.onload = resolve;
+    s.onerror = () => { jsPdfLoading = null; reject(new Error('Impossible de charger le générateur de PDF (connexion internet nécessaire).')); };
+    document.head.appendChild(s);
+  });
+  return jsPdfLoading;
+}
+
+function formatEurosPlain(n) {
+  return Number(n || 0).toFixed(2).replace('.', ',') + ' €';
+}
+
+function addInvoiceLine(description = '', quantite = 1, prixUnitaire = '') {
+  const container = document.getElementById('invoice-lines');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'invoice-line';
+  row.innerHTML = `
+    <input type="text" placeholder="Description" class="inv-line-desc" value="${escapeHtml(description)}">
+    <input type="number" placeholder="Qté" min="0" step="0.01" class="inv-line-qte" value="${quantite}">
+    <input type="number" placeholder="Prix unit. €" min="0" step="0.01" class="inv-line-prix" value="${prixUnitaire}">
+    <button type="button" class="invoice-line-remove" aria-label="Retirer la ligne">✕</button>
+  `;
+  row.querySelector('.invoice-line-remove').addEventListener('click', () => { row.remove(); updateInvoiceTotals(); });
+  row.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updateInvoiceTotals));
+  container.appendChild(row);
+}
+
+function getInvoiceLines() {
+  return Array.from(document.querySelectorAll('#invoice-lines .invoice-line')).map(row => ({
+    description: row.querySelector('.inv-line-desc').value.trim(),
+    quantite: parseFloat(row.querySelector('.inv-line-qte').value) || 0,
+    prix_unitaire: parseFloat(row.querySelector('.inv-line-prix').value) || 0,
+  }));
+}
+
+function updateInvoiceTotals() {
+  const totalsEl = document.getElementById('invoice-totals');
+  if (!totalsEl) return;
+  const lines = getInvoiceLines();
+  const sousTotal = lines.reduce((sum, l) => sum + l.quantite * l.prix_unitaire, 0);
+  const tvaTaux = parseFloat(document.getElementById('inv-tva')?.value) || 0;
+  const tva = sousTotal * (tvaTaux / 100);
+  const total = sousTotal + tva;
+  totalsEl.innerHTML = `Sous-total : ${formatEuros(sousTotal)}<br>TVA (${tvaTaux}%) : ${formatEuros(tva)}<br><strong style="color:var(--text);font-size:16px;">Total TTC : ${formatEuros(total)}</strong>`;
+}
+
+function initInvoiceForm() {
+  const form = document.getElementById('invoice-form');
+  if (!form) return;
+  const linesContainer = document.getElementById('invoice-lines');
+  const addBtn = document.getElementById('invoice-add-line');
+  const errorBox = document.getElementById('invoice-form-error');
+  const dateInput = document.getElementById('inv-date');
+  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+
+  if (linesContainer && linesContainer.children.length === 0) addInvoiceLine();
+  addBtn?.addEventListener('click', () => { addInvoiceLine(); updateInvoiceTotals(); });
+  document.getElementById('inv-tva')?.addEventListener('input', updateInvoiceTotals);
+  updateInvoiceTotals();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.style.display = 'none';
+
+    const lines = getInvoiceLines().filter(l => l.description);
+    if (!lines.length) {
+      errorBox.textContent = 'Ajoutez au moins une ligne avec une description.';
+      errorBox.style.display = 'block';
+      return;
+    }
+
+    const payload = {
+      client_nom: document.getElementById('inv-client-nom').value.trim(),
+      client_email: document.getElementById('inv-client-email').value.trim(),
+      client_adresse: document.getElementById('inv-client-adresse').value.trim(),
+      date: document.getElementById('inv-date').value,
+      tva_taux: document.getElementById('inv-tva').value,
+      notes: document.getElementById('inv-notes').value.trim(),
+      items: lines,
+    };
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Génération…';
+
+    try {
+      const invoice = await api('/api/invoices', { method: 'POST', body: JSON.stringify(payload) });
+      await downloadInvoicePDF(invoice);
+      form.reset();
+      linesContainer.innerHTML = '';
+      addInvoiceLine();
+      if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+      document.getElementById('inv-tva').value = 20;
+      updateInvoiceTotals();
+      renderInvoicesAdmin();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
+  });
+}
+
+async function downloadInvoicePDF(invoice) {
+  await ensureJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 18;
+  let y = 20;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(20, 20, 20);
+  doc.text('THE HORDE STUDIO', marginX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text('Studio & label indépendant', marginX, y + 6);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(20, 20, 20);
+  doc.text('FACTURE', pageWidth - marginX, y, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(90);
+  doc.text(`N° ${invoice.numero}`, pageWidth - marginX, y + 6, { align: 'right' });
+  doc.text(`Date : ${formatDateFr(invoice.date)}`, pageWidth - marginX, y + 11, { align: 'right' });
+
+  y += 22;
+  doc.setDrawColor(220);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 10;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(20, 20, 20);
+  doc.text('Facturé à :', marginX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(60);
+  y += 6;
+  doc.text(invoice.client_nom, marginX, y);
+  if (invoice.client_email) { y += 5; doc.text(invoice.client_email, marginX, y); }
+  if (invoice.client_adresse) {
+    doc.splitTextToSize(invoice.client_adresse, 80).forEach(line => { y += 5; doc.text(line, marginX, y); });
+  }
+
+  y += 12;
+  const colDesc = marginX, colQte = pageWidth - marginX - 70, colPrix = pageWidth - marginX - 45, colTotal = pageWidth - marginX;
+
+  doc.setFillColor(23, 15, 16);
+  doc.rect(marginX, y, pageWidth - marginX * 2, 8, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('Description', colDesc + 2, y + 5.5);
+  doc.text('Qté', colQte, y + 5.5, { align: 'right' });
+  doc.text('Prix unit.', colPrix, y + 5.5, { align: 'right' });
+  doc.text('Total', colTotal, y + 5.5, { align: 'right' });
+  y += 8;
+
+  doc.setFont('helvetica', 'normal');
+  let sousTotal = 0;
+  invoice.items.forEach((item, i) => {
+    const ligneTotal = item.quantite * item.prix_unitaire;
+    sousTotal += ligneTotal;
+    if (i % 2 === 1) { doc.setFillColor(245, 245, 245); doc.rect(marginX, y, pageWidth - marginX * 2, 8, 'F'); }
+    doc.setTextColor(40, 40, 40);
+    doc.text(String(item.description), colDesc + 2, y + 5.5, { maxWidth: colQte - colDesc - 6 });
+    doc.text(String(item.quantite), colQte, y + 5.5, { align: 'right' });
+    doc.text(formatEurosPlain(item.prix_unitaire), colPrix, y + 5.5, { align: 'right' });
+    doc.text(formatEurosPlain(ligneTotal), colTotal, y + 5.5, { align: 'right' });
+    y += 8;
+  });
+
+  y += 4;
+  doc.setDrawColor(220);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 8;
+
+  const tva = sousTotal * (invoice.tva_taux / 100);
+  const total = sousTotal + tva;
+
+  doc.setFontSize(10);
+  doc.setTextColor(60);
+  doc.text('Sous-total :', colPrix, y, { align: 'right' });
+  doc.text(formatEurosPlain(sousTotal), colTotal, y, { align: 'right' });
+  y += 6;
+  doc.text(`TVA (${invoice.tva_taux}%) :`, colPrix, y, { align: 'right' });
+  doc.text(formatEurosPlain(tva), colTotal, y, { align: 'right' });
+  y += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(20, 20, 20);
+  doc.text('Total TTC :', colPrix, y, { align: 'right' });
+  doc.text(formatEurosPlain(total), colTotal, y, { align: 'right' });
+
+  if (invoice.notes) {
+    y += 16;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.splitTextToSize(invoice.notes, pageWidth - marginX * 2).forEach(line => { doc.text(line, marginX, y); y += 5; });
+  }
+
+  doc.save(`${invoice.numero}.pdf`);
+}
+
+let cachedInvoices = [];
+async function renderInvoicesAdmin() {
+  const tbody = document.getElementById('invoices-admin-body');
+  if (!tbody) return;
+  try {
+    cachedInvoices = await api('/api/invoices');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger)">${escapeHtml(err.message)}</td></tr>`;
+    return;
+  }
+  if (!cachedInvoices.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--text-muted)">Aucune facture pour le moment.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = cachedInvoices.map(inv => {
+    const sousTotal = inv.items.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+    const total = sousTotal * (1 + inv.tva_taux / 100);
+    return `
+      <tr>
+        <td>${escapeHtml(inv.numero)}</td>
+        <td>${escapeHtml(formatDateFr(inv.date))}</td>
+        <td>${escapeHtml(inv.client_nom)}</td>
+        <td>${formatEuros(total)}</td>
+        <td>
+          <select onchange="updateInvoiceStatut(${inv.id}, this.value)" style="background:var(--bg-panel);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:5px 8px;font-size:12.5px;">
+            <option value="En attente" ${inv.statut === 'En attente' ? 'selected' : ''}>En attente</option>
+            <option value="Payée" ${inv.statut === 'Payée' ? 'selected' : ''}>Payée</option>
+          </select>
+        </td>
+        <td>
+          <button class="mini-btn" onclick="redownloadInvoice(${inv.id})">PDF</button>
+          <button class="mini-btn danger" onclick="deleteInvoiceAdmin(${inv.id})">Retirer</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+function redownloadInvoice(id) {
+  const inv = cachedInvoices.find(i => i.id === id);
+  if (inv) downloadInvoicePDF(inv);
+}
+async function updateInvoiceStatut(id, statut) {
+  try { await api(`/api/invoices/${id}/statut`, { method: 'PATCH', body: JSON.stringify({ statut }) }); }
+  catch (err) { alert(err.message); renderInvoicesAdmin(); }
+}
+async function deleteInvoiceAdmin(id) {
+  if (!confirm('Retirer cette facture de l\'historique ? Cette action est définitive.')) return;
+  try { await api(`/api/invoices/${id}`, { method: 'DELETE' }); renderInvoicesAdmin(); }
+  catch (err) { alert(err.message); }
+}
+
 /* --- Transactions & comptabilité (admin) --- */
 function formatDateFr(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -811,7 +1086,7 @@ async function renderComptaSummary() {
 }
 
 /* --- Comptes Gestion (admin) --- */
-const PERMISSION_LABELS = { messages: 'Contact', artists: 'Artistes', formules: 'Formules', bar: 'Bar', compta: 'Comptabilité' };
+const PERMISSION_LABELS = { messages: 'Contact', artists: 'Artistes', formules: 'Formules', bar: 'Bar', factures: 'Factures', compta: 'Comptabilité' };
 
 async function renderAdminsAdmin() {
   const tbody = document.getElementById('admins-body');
@@ -935,6 +1210,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initFormuleAdminForm();
   initAdminAccountForm();
   initChangePasswordForm();
+  initInvoiceForm();
   initDrinkAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();
@@ -1011,6 +1287,7 @@ function reinitPageScripts() {
   initFormuleAdminForm();
   initAdminAccountForm();
   initChangePasswordForm();
+  initInvoiceForm();
   initDrinkAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();

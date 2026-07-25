@@ -29,7 +29,7 @@ function requireAdmin(req, res, next) {
 }
 
 // Sections d'accès possibles pour un compte "Collaborateur" à droits limités.
-const PERMISSION_KEYS = ['messages', 'artists', 'formules', 'bar', 'compta'];
+const PERMISSION_KEYS = ['messages', 'artists', 'formules', 'bar', 'compta', 'factures'];
 
 // Seuls les comptes "Administrateur" ont un accès total et peuvent gérer les
 // autres comptes ; un compte "Collaborateur" n'a que les sections cochées à
@@ -396,6 +396,60 @@ app.get('/api/transactions/summary', requirePermission('compta'), h(async (req, 
     solde: totalEntrees - totalDepenses,
     weekly: weeklyList,
   });
+}));
+
+// ==================== FACTURES ====================
+// Tout est réservé aux comptes ayant le droit "factures".
+app.get('/api/invoices', requirePermission('factures'), h(async (req, res) => {
+  const rows = await db.all('SELECT * FROM invoices ORDER BY created_at DESC');
+  res.json(rows.map(r => ({ ...r, items: JSON.parse(r.items) })));
+}));
+
+app.post('/api/invoices', requirePermission('factures'), h(async (req, res) => {
+  const { client_nom, client_email, client_adresse, date, items, tva_taux, notes } = req.body;
+
+  if (!client_nom) return res.status(400).json({ error: 'Le nom du client est obligatoire.' });
+  if (!date) return res.status(400).json({ error: 'La date est obligatoire.' });
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Ajoutez au moins une ligne à la facture.' });
+
+  const cleanItems = [];
+  for (const it of items) {
+    const description = (it.description || '').trim();
+    const quantite = parseFloat(it.quantite);
+    const prixUnitaire = parseFloat(it.prix_unitaire);
+    if (!description) return res.status(400).json({ error: 'Chaque ligne doit avoir une description.' });
+    if (isNaN(quantite) || quantite <= 0) return res.status(400).json({ error: `Quantité invalide pour "${description}".` });
+    if (isNaN(prixUnitaire) || prixUnitaire < 0) return res.status(400).json({ error: `Prix invalide pour "${description}".` });
+    cleanItems.push({ description, quantite, prix_unitaire: prixUnitaire });
+  }
+
+  const tvaTaux = tva_taux === undefined || tva_taux === '' ? 20 : parseFloat(tva_taux);
+  if (isNaN(tvaTaux) || tvaTaux < 0) return res.status(400).json({ error: 'Taux de TVA invalide.' });
+
+  // Numérotation automatique : FA-<année>-<numéro séquentiel sur 4 chiffres>
+  const year = new Date(date).getFullYear() || new Date().getFullYear();
+  const countRow = await db.get("SELECT COUNT(*) AS c FROM invoices WHERE numero LIKE ?", [`FA-${year}-%`]);
+  const numero = `FA-${year}-${String(countRow.c + 1).padStart(4, '0')}`;
+
+  const info = await db.run(
+    `INSERT INTO invoices (numero, client_nom, client_email, client_adresse, date, items, tva_taux, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [numero, client_nom, client_email || '', client_adresse || '', date, JSON.stringify(cleanItems), tvaTaux, notes || '']
+  );
+  const created = await db.get('SELECT * FROM invoices WHERE id = ?', [info.lastInsertRowid]);
+  res.json({ ...created, items: JSON.parse(created.items) });
+}));
+
+app.patch('/api/invoices/:id/statut', requirePermission('factures'), h(async (req, res) => {
+  const { statut } = req.body;
+  if (!['En attente', 'Payée'].includes(statut)) return res.status(400).json({ error: 'Statut invalide.' });
+  await db.run('UPDATE invoices SET statut = ? WHERE id = ?', [statut, req.params.id]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/invoices/:id', requirePermission('factures'), h(async (req, res) => {
+  await db.run('DELETE FROM invoices WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ==================== FICHIERS STATIQUES ====================

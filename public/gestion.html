@@ -70,6 +70,7 @@
         <button class="admin-tab" data-target="panel-artists">Artistes</button>
         <button class="admin-tab" data-target="panel-formules">Formules</button>
         <button class="admin-tab" data-target="panel-boissons">Bar</button>
+        <button class="admin-tab" data-target="panel-factures">Factures</button>
         <button class="admin-tab" data-target="panel-compta">Comptabilité</button>
         <button class="admin-tab" data-target="panel-comptes">Comptes</button>
       </div>
@@ -176,6 +177,7 @@
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="artists"> Artistes</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="formules"> Formules</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="bar"> Bar</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="factures"> Factures</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="compta"> Comptabilité</label>
               </div>
             </div>
@@ -208,6 +210,52 @@
         <table class="data-table">
           <thead><tr><th>Boisson</th><th>Catégorie</th><th>Prix</th><th>Actions</th></tr></thead>
           <tbody id="drinks-admin-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet : factures -->
+      <div id="panel-factures" class="admin-panel" style="margin-top:26px;">
+
+        <div class="notice-banner">
+          Vérifiez les mentions légales obligatoires pour vos factures (SIRET, régime de TVA applicable, conditions de paiement...) — ajoutez-les dans le champ « Notes » ci-dessous si besoin. Ce générateur ne les ajoute pas automatiquement.
+        </div>
+
+        <div class="section-head" style="margin-bottom:20px;">
+          <span class="eyebrow">Nouvelle facture</span>
+          <h2 style="font-size:22px; margin-top:8px;">Créer une facture</h2>
+        </div>
+
+        <form id="invoice-form" class="admin-form-grid">
+          <div class="field"><label for="inv-client-nom">Nom du client</label><input type="text" id="inv-client-nom" name="client_nom" required></div>
+          <div class="field"><label for="inv-client-email">Email du client (optionnel)</label><input type="email" id="inv-client-email" name="client_email"></div>
+          <div class="field full"><label for="inv-client-adresse">Adresse du client (optionnel)</label><textarea id="inv-client-adresse" name="client_adresse" rows="2"></textarea></div>
+          <div class="field"><label for="inv-date">Date</label><input type="date" id="inv-date" name="date" required></div>
+          <div class="field"><label for="inv-tva">Taux de TVA (%)</label><input type="number" id="inv-tva" name="tva_taux" value="20" min="0" step="0.1"></div>
+
+          <div class="full">
+            <label style="display:block; margin-bottom:10px;">Lignes de la commande</label>
+            <div id="invoice-lines"></div>
+            <button type="button" id="invoice-add-line" class="btn btn-outline" style="margin-top:6px; padding:9px 18px; font-size:13.5px;">+ Ajouter une ligne</button>
+          </div>
+
+          <div class="field full">
+            <label for="inv-notes">Notes / mentions légales (optionnel)</label>
+            <textarea id="inv-notes" name="notes" rows="3" placeholder="Ex : Paiement à réception. SIRET : ..."></textarea>
+          </div>
+
+          <div class="full" id="invoice-totals" style="text-align:right; font-family:var(--f-mono); color:var(--text-muted); font-size:14px;"></div>
+
+          <span class="login-error" id="invoice-form-error" style="display:none;"></span>
+          <div class="full"><button type="submit" class="btn btn-gold">Générer la facture (PDF)</button></div>
+        </form>
+
+        <div class="section-head" style="margin:36px 0 20px;">
+          <span class="eyebrow">Historique</span>
+          <h2 style="font-size:22px; margin-top:8px;">Factures déjà émises</h2>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody id="invoices-admin-body"></tbody>
         </table>
       </div>
 

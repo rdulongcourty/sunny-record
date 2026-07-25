@@ -110,6 +110,20 @@ const SCHEMA = `
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT NOT NULL UNIQUE,
+    client_nom TEXT NOT NULL,
+    client_email TEXT DEFAULT '',
+    client_adresse TEXT DEFAULT '',
+    date TEXT NOT NULL,
+    items TEXT NOT NULL,
+    tva_taux REAL NOT NULL DEFAULT 20,
+    notes TEXT DEFAULT '',
+    statut TEXT NOT NULL DEFAULT 'En attente',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT
