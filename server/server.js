@@ -406,7 +406,7 @@ app.get('/api/invoices', requirePermission('factures'), h(async (req, res) => {
 }));
 
 app.post('/api/invoices', requirePermission('factures'), h(async (req, res) => {
-  const { client_nom, client_email, client_adresse, date, items, tva_taux, notes } = req.body;
+  const { client_nom, client_email, client_adresse, date, items, reduction_taux, notes } = req.body;
 
   if (!client_nom) return res.status(400).json({ error: 'Le nom du client est obligatoire.' });
   if (!date) return res.status(400).json({ error: 'La date est obligatoire.' });
@@ -423,8 +423,11 @@ app.post('/api/invoices', requirePermission('factures'), h(async (req, res) => {
     cleanItems.push({ description, quantite, prix_unitaire: prixUnitaire });
   }
 
-  const tvaTaux = tva_taux === undefined || tva_taux === '' ? 20 : parseFloat(tva_taux);
-  if (isNaN(tvaTaux) || tvaTaux < 0) return res.status(400).json({ error: 'Taux de TVA invalide.' });
+  // Réduction optionnelle (0 par défaut) — remplace une TVA, non pertinente ici.
+  const reductionTaux = reduction_taux === undefined || reduction_taux === '' ? 0 : parseFloat(reduction_taux);
+  if (isNaN(reductionTaux) || reductionTaux < 0 || reductionTaux > 100) {
+    return res.status(400).json({ error: 'La réduction doit être un pourcentage entre 0 et 100.' });
+  }
 
   // Numérotation automatique : FA-<année>-<numéro séquentiel sur 4 chiffres>
   const year = new Date(date).getFullYear() || new Date().getFullYear();
@@ -432,22 +435,54 @@ app.post('/api/invoices', requirePermission('factures'), h(async (req, res) => {
   const numero = `FA-${year}-${String(countRow.c + 1).padStart(4, '0')}`;
 
   const info = await db.run(
-    `INSERT INTO invoices (numero, client_nom, client_email, client_adresse, date, items, tva_taux, notes)
+    `INSERT INTO invoices (numero, client_nom, client_email, client_adresse, date, items, reduction_taux, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [numero, client_nom, client_email || '', client_adresse || '', date, JSON.stringify(cleanItems), tvaTaux, notes || '']
+    [numero, client_nom, client_email || '', client_adresse || '', date, JSON.stringify(cleanItems), reductionTaux, notes || '']
   );
   const created = await db.get('SELECT * FROM invoices WHERE id = ?', [info.lastInsertRowid]);
   res.json({ ...created, items: JSON.parse(created.items) });
 }));
 
+function computeInvoiceTotal(invoice) {
+  const items = typeof invoice.items === 'string' ? JSON.parse(invoice.items) : invoice.items;
+  const sousTotal = items.reduce((s, it) => s + it.quantite * it.prix_unitaire, 0);
+  return sousTotal * (1 - (invoice.reduction_taux || 0) / 100);
+}
+
+// Passer une facture à "Payée" ajoute automatiquement une entrée d'argent en
+// Comptabilité (montant = total de la facture) ; repasser à "En attente"
+// retire cette même entrée. Le lien est gardé via invoices.transaction_id
+// pour ne jamais créer de doublon si on bascule le statut plusieurs fois.
 app.patch('/api/invoices/:id/statut', requirePermission('factures'), h(async (req, res) => {
   const { statut } = req.body;
   if (!['En attente', 'Payée'].includes(statut)) return res.status(400).json({ error: 'Statut invalide.' });
-  await db.run('UPDATE invoices SET statut = ? WHERE id = ?', [statut, req.params.id]);
+
+  const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [req.params.id]);
+  if (!invoice) return res.status(404).json({ error: 'Facture introuvable.' });
+
+  if (statut === 'Payée' && !invoice.transaction_id) {
+    const total = computeInvoiceTotal(invoice);
+    const txInfo = await db.run(
+      "INSERT INTO transactions (type, montant, categorie, description, date) VALUES ('entree', ?, 'Facture', ?, ?)",
+      [total, `Facture ${invoice.numero} — ${invoice.client_nom}`, new Date().toISOString().slice(0, 10)]
+    );
+    await db.run('UPDATE invoices SET statut = ?, transaction_id = ? WHERE id = ?', [statut, txInfo.lastInsertRowid, invoice.id]);
+  } else if (statut === 'En attente' && invoice.transaction_id) {
+    await db.run('DELETE FROM transactions WHERE id = ?', [invoice.transaction_id]);
+    await db.run('UPDATE invoices SET statut = ?, transaction_id = NULL WHERE id = ?', [statut, invoice.id]);
+  } else {
+    await db.run('UPDATE invoices SET statut = ? WHERE id = ?', [statut, invoice.id]);
+  }
+
   res.json({ ok: true });
 }));
 
 app.delete('/api/invoices/:id', requirePermission('factures'), h(async (req, res) => {
+  // Si la facture avait généré une entrée en comptabilité, on la retire aussi.
+  const invoice = await db.get('SELECT transaction_id FROM invoices WHERE id = ?', [req.params.id]);
+  if (invoice && invoice.transaction_id) {
+    await db.run('DELETE FROM transactions WHERE id = ?', [invoice.transaction_id]);
+  }
   await db.run('DELETE FROM invoices WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));

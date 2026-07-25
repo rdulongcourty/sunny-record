@@ -733,10 +733,12 @@ function updateInvoiceTotals() {
   if (!totalsEl) return;
   const lines = getInvoiceLines();
   const sousTotal = lines.reduce((sum, l) => sum + l.quantite * l.prix_unitaire, 0);
-  const tvaTaux = parseFloat(document.getElementById('inv-tva')?.value) || 0;
-  const tva = sousTotal * (tvaTaux / 100);
-  const total = sousTotal + tva;
-  totalsEl.innerHTML = `Sous-total : ${formatEuros(sousTotal)}<br>TVA (${tvaTaux}%) : ${formatEuros(tva)}<br><strong style="color:var(--text);font-size:16px;">Total TTC : ${formatEuros(total)}</strong>`;
+  const reductionTaux = parseFloat(document.getElementById('inv-reduction')?.value) || 0;
+  const reduction = sousTotal * (reductionTaux / 100);
+  const total = sousTotal - reduction;
+  totalsEl.innerHTML = reductionTaux > 0
+    ? `Sous-total : ${formatEuros(sousTotal)}<br>Réduction (${reductionTaux}%) : − ${formatEuros(reduction)}<br><strong style="color:var(--text);font-size:16px;">Total : ${formatEuros(total)}</strong>`
+    : `<strong style="color:var(--text);font-size:16px;">Total : ${formatEuros(total)}</strong>`;
 }
 
 function initInvoiceForm() {
@@ -750,7 +752,7 @@ function initInvoiceForm() {
 
   if (linesContainer && linesContainer.children.length === 0) addInvoiceLine();
   addBtn?.addEventListener('click', () => { addInvoiceLine(); updateInvoiceTotals(); });
-  document.getElementById('inv-tva')?.addEventListener('input', updateInvoiceTotals);
+  document.getElementById('inv-reduction')?.addEventListener('input', updateInvoiceTotals);
   updateInvoiceTotals();
 
   form.addEventListener('submit', async (e) => {
@@ -769,7 +771,7 @@ function initInvoiceForm() {
       client_email: document.getElementById('inv-client-email').value.trim(),
       client_adresse: document.getElementById('inv-client-adresse').value.trim(),
       date: document.getElementById('inv-date').value,
-      tva_taux: document.getElementById('inv-tva').value,
+      reduction_taux: document.getElementById('inv-reduction').value,
       notes: document.getElementById('inv-notes').value.trim(),
       items: lines,
     };
@@ -786,7 +788,7 @@ function initInvoiceForm() {
       linesContainer.innerHTML = '';
       addInvoiceLine();
       if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
-      document.getElementById('inv-tva').value = 20;
+      document.getElementById('inv-reduction').value = 0;
       updateInvoiceTotals();
       renderInvoicesAdmin();
     } catch (err) {
@@ -877,21 +879,23 @@ async function downloadInvoicePDF(invoice) {
   doc.line(marginX, y, pageWidth - marginX, y);
   y += 8;
 
-  const tva = sousTotal * (invoice.tva_taux / 100);
-  const total = sousTotal + tva;
+  const reduction = sousTotal * ((invoice.reduction_taux || 0) / 100);
+  const total = sousTotal - reduction;
 
   doc.setFontSize(10);
   doc.setTextColor(60);
-  doc.text('Sous-total :', colPrix, y, { align: 'right' });
-  doc.text(formatEurosPlain(sousTotal), colTotal, y, { align: 'right' });
-  y += 6;
-  doc.text(`TVA (${invoice.tva_taux}%) :`, colPrix, y, { align: 'right' });
-  doc.text(formatEurosPlain(tva), colTotal, y, { align: 'right' });
-  y += 8;
+  if (invoice.reduction_taux > 0) {
+    doc.text('Sous-total :', colPrix, y, { align: 'right' });
+    doc.text(formatEurosPlain(sousTotal), colTotal, y, { align: 'right' });
+    y += 6;
+    doc.text(`Réduction (${invoice.reduction_taux}%) :`, colPrix, y, { align: 'right' });
+    doc.text(`− ${formatEurosPlain(reduction)}`, colTotal, y, { align: 'right' });
+    y += 8;
+  }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(20, 20, 20);
-  doc.text('Total TTC :', colPrix, y, { align: 'right' });
+  doc.text('Total :', colPrix, y, { align: 'right' });
   doc.text(formatEurosPlain(total), colTotal, y, { align: 'right' });
 
   if (invoice.notes) {
@@ -921,7 +925,7 @@ async function renderInvoicesAdmin() {
   }
   tbody.innerHTML = cachedInvoices.map(inv => {
     const sousTotal = inv.items.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
-    const total = sousTotal * (1 + inv.tva_taux / 100);
+    const total = sousTotal * (1 - (inv.reduction_taux || 0) / 100);
     return `
       <tr>
         <td>${escapeHtml(inv.numero)}</td>
@@ -947,8 +951,19 @@ function redownloadInvoice(id) {
   if (inv) downloadInvoicePDF(inv);
 }
 async function updateInvoiceStatut(id, statut) {
-  try { await api(`/api/invoices/${id}/statut`, { method: 'PATCH', body: JSON.stringify({ statut }) }); }
-  catch (err) { alert(err.message); renderInvoicesAdmin(); }
+  try {
+    await api(`/api/invoices/${id}/statut`, { method: 'PATCH', body: JSON.stringify({ statut }) });
+    renderInvoicesAdmin();
+    // Le changement de statut ajoute/retire une entrée en Comptabilité : on rafraîchit
+    // ces vues si elles sont présentes sur la page (sans erreur si l'onglet n'est pas visible).
+    if (canAccess('compta')) {
+      renderTransactionsAdmin();
+      renderComptaSummary();
+    }
+  } catch (err) {
+    alert(err.message);
+    renderInvoicesAdmin();
+  }
 }
 async function deleteInvoiceAdmin(id) {
   if (!confirm('Retirer cette facture de l\'historique ? Cette action est définitive.')) return;

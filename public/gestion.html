@@ -217,7 +217,7 @@
       <div id="panel-factures" class="admin-panel" style="margin-top:26px;">
 
         <div class="notice-banner">
-          Vérifiez les mentions légales obligatoires pour vos factures (SIRET, régime de TVA applicable, conditions de paiement...) — ajoutez-les dans le champ « Notes » ci-dessous si besoin. Ce générateur ne les ajoute pas automatiquement.
+          Passer une facture en « Payée » l'ajoute automatiquement comme entrée d'argent dans l'onglet Comptabilité (et la retire si vous repassez en « En attente »). Le champ « Notes » est libre — utilisez-le pour tout complément que vous voulez faire apparaître sur le PDF.
         </div>
 
         <div class="section-head" style="margin-bottom:20px;">
@@ -230,7 +230,7 @@
           <div class="field"><label for="inv-client-email">Email du client (optionnel)</label><input type="email" id="inv-client-email" name="client_email"></div>
           <div class="field full"><label for="inv-client-adresse">Adresse du client (optionnel)</label><textarea id="inv-client-adresse" name="client_adresse" rows="2"></textarea></div>
           <div class="field"><label for="inv-date">Date</label><input type="date" id="inv-date" name="date" required></div>
-          <div class="field"><label for="inv-tva">Taux de TVA (%)</label><input type="number" id="inv-tva" name="tva_taux" value="20" min="0" step="0.1"></div>
+          <div class="field"><label for="inv-reduction">Réduction (%, optionnel)</label><input type="number" id="inv-reduction" name="reduction_taux" value="0" min="0" max="100" step="0.1"></div>
 
           <div class="full">
             <label style="display:block; margin-bottom:10px;">Lignes de la commande</label>

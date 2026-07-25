@@ -118,9 +118,10 @@ const SCHEMA = `
     client_adresse TEXT DEFAULT '',
     date TEXT NOT NULL,
     items TEXT NOT NULL,
-    tva_taux REAL NOT NULL DEFAULT 20,
+    reduction_taux REAL NOT NULL DEFAULT 0,
     notes TEXT DEFAULT '',
     statut TEXT NOT NULL DEFAULT 'En attente',
+    transaction_id INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -183,6 +184,17 @@ async function init() {
     await ensureColumn('admins', 'role', "TEXT NOT NULL DEFAULT 'admin'");
     await ensureColumn('admins', 'permissions', 'TEXT');
     await setMeta('migration_admin_roles', 'done');
+  }
+  if ((await getMeta('migration_invoice_reduction')) !== 'done') {
+    // La TVA a été remplacée par une réduction optionnelle (usage non professionnel).
+    try {
+      await run('ALTER TABLE invoices RENAME COLUMN tva_taux TO reduction_taux');
+    } catch (err) {
+      // Colonne déjà absente sous l'ancien nom (base neuve) : on s'assure juste qu'elle existe.
+      await ensureColumn('invoices', 'reduction_taux', 'REAL NOT NULL DEFAULT 0');
+    }
+    await ensureColumn('invoices', 'transaction_id', 'INTEGER');
+    await setMeta('migration_invoice_reduction', 'done');
   }
 
   const artistCount = (await get('SELECT COUNT(*) AS c FROM artists')).c;
