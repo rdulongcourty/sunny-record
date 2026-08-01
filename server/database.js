@@ -60,6 +60,8 @@ const SCHEMA = `
     track_titre TEXT,
     track_data TEXT,
     cover_image TEXT,
+    likes INTEGER NOT NULL DEFAULT 0,
+    plays INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -122,6 +124,18 @@ const SCHEMA = `
     notes TEXT DEFAULT '',
     statut TEXT NOT NULL DEFAULT 'En attente',
     transaction_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titre TEXT NOT NULL,
+    date TEXT NOT NULL,
+    heure TEXT DEFAULT '',
+    lieu TEXT DEFAULT '',
+    ville TEXT DEFAULT '',
+    billetterie_url TEXT DEFAULT '',
+    description TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -195,6 +209,14 @@ async function init() {
     }
     await ensureColumn('invoices', 'transaction_id', 'INTEGER');
     await setMeta('migration_invoice_reduction', 'done');
+  }
+  if ((await getMeta('migration_artist_likes')) !== 'done') {
+    await ensureColumn('artists', 'likes', 'INTEGER NOT NULL DEFAULT 0');
+    await setMeta('migration_artist_likes', 'done');
+  }
+  if ((await getMeta('migration_artist_plays')) !== 'done') {
+    await ensureColumn('artists', 'plays', 'INTEGER NOT NULL DEFAULT 0');
+    await setMeta('migration_artist_plays', 'done');
   }
 
   const artistCount = (await get('SELECT COUNT(*) AS c FROM artists')).c;

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Le Bar — The Horde Studio</title>
-<meta name="description" content="La carte des boissons du bar The Horde Studio — alcoolisées et non-alcoolisées.">
+<title>Concerts — The Horde Studio</title>
+<meta name="description" content="Les prochains concerts et événements de The Horde Studio.">
 <link rel="icon" href="assets/logo/favicon.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -18,8 +18,8 @@
       <a href="index.html">Accueil</a>
       <a href="artistes.html">Artistes</a>
       <a href="formules.html">Formules</a>
-      <a href="bar.html" class="active">Bar</a>
-      <a href="concerts.html">Concerts</a>
+      <a href="bar.html">Bar</a>
+      <a href="concerts.html" class="active">Concerts</a>
       <a href="contact.html">Contact</a>
       <a href="gestion.html" class="nav-cta">Gestion</a>
     </div>
@@ -28,18 +28,14 @@
 
 <main>
   <section class="wrap page-hero">
-    <span class="eyebrow">La carte</span>
-    <h1>Le Bar The Horde Studio</h1>
-    <p>Un verre entre deux sets. Carte gérée depuis l'espace Gestion — toujours à jour.</p>
+    <span class="eyebrow">À l'affiche</span>
+    <h1>Concerts & événements</h1>
+    <p>Les prochaines dates de la Horde — gérées depuis l'onglet Gestion, toujours à jour.</p>
   </section>
 
   <section class="wrap block tight">
-    <div class="filter-bar" id="drink-filter-bar"></div>
-    <div id="drinks-list"></div>
-
-    <p style="text-align:center; color:var(--text-muted); font-size:12.5px; margin-top:50px; font-family:var(--f-mono);">
-      L'abus d'alcool est dangereux pour la santé, à consommer avec modération. Vente interdite aux mineurs.
-    </p>
+    <div id="events-upcoming"></div>
+    <div id="events-past"></div>
   </section>
 </main>
 

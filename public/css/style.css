@@ -262,6 +262,17 @@ section.block.tight { padding: 60px 0; }
 .play-btn { width: 100%; justify-content: center; margin-top: 6px; }
 .play-btn.is-playing { border-color: var(--gold); color: var(--gold-soft); }
 
+.like-btn {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+  background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 11px; color: var(--text-muted); font-family: var(--f-mono); font-size: 12.5px;
+  transition: border-color .15s ease, color .15s ease, transform .1s ease;
+}
+.like-btn:hover { border-color: var(--gold); color: var(--gold-soft); }
+.like-btn:active { transform: scale(0.94); }
+.like-btn.is-liked { border-color: var(--gold); color: var(--gold-soft); }
+.like-btn .like-heart { font-size: 14px; color: var(--gold); }
+
 /* ---------- LECTEUR FLOTTANT (persiste entre les pages) ---------- */
 #mini-player {
   position: fixed; right: 20px; bottom: 20px; z-index: 200;
@@ -430,6 +441,23 @@ section.block.tight { padding: 60px 0; }
 #compta-chart { max-width: 100%; }
 .badge.entree { background: rgba(168,156,156,0.16); color: var(--violet-bright); }
 .admin-cover-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+
+/* ---------- CONCERTS ---------- */
+.event-card {
+  display: flex; gap: 20px; align-items: flex-start;
+  background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 22px 24px; margin-bottom: 16px;
+}
+.event-date-block {
+  flex-shrink: 0; width: 64px; text-align: center;
+  background: var(--bg-panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px;
+}
+.event-date-block .day { font-family: var(--f-display); font-size: 22px; color: var(--gold); line-height: 1; }
+.event-date-block .month { font-family: var(--f-mono); font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-top: 4px; }
+.event-info h3 { font-size: 18px; margin-bottom: 6px; }
+.event-meta { font-family: var(--f-mono); font-size: 12.5px; color: var(--text-muted); margin-bottom: 8px; }
+.event-info p.desc { color: var(--text-muted); font-size: 14px; margin: 0 0 12px; }
+.event-card.is-past { opacity: 0.55; }
 
 /* ---------- FACTURES ---------- */
 .invoice-line {

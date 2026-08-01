@@ -141,6 +141,17 @@ function playTrack(src, titre, artiste, sourceBtn, coverUrl) {
 // charge vite — voir server/server.js, route /api/artists/:id/track).
 const trackCache = {}; // évite de re-télécharger le même morceau plusieurs fois dans la session
 
+// Incrémente le compteur d'écoutes côté serveur, sans jamais bloquer ni
+// perturber la lecture en cas d'échec (juste une statistique).
+async function registerPlay(artistId) {
+  try {
+    const res = await api(`/api/artists/${artistId}/play`, { method: 'POST' });
+    const cached = cachedArtists.find(a => a.id === artistId);
+    if (cached) cached.plays = res.plays;
+    document.querySelectorAll(`.plays-count[data-artist-id="${artistId}"]`).forEach(el => { el.textContent = `🎧 ${res.plays}`; });
+  } catch (_) { /* statistique non critique : on ignore silencieusement */ }
+}
+
 async function playArtistTrack(artistId, btn) {
   const artist = cachedArtists.find(a => a.id === artistId);
   if (!artist || !artist.has_track) return;
@@ -153,6 +164,7 @@ async function playArtistTrack(artistId, btn) {
 
   const originalLabel = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Chargement…'; }
+  const isNewTrack = !trackCache[artistId];
 
   try {
     let trackData = trackCache[artistId];
@@ -162,6 +174,7 @@ async function playArtistTrack(artistId, btn) {
       trackCache[artistId] = trackData;
     }
     playTrack(trackData, artist.track_titre || 'Sans titre', artist.nom, btn, artist.cover_image);
+    if (isNewTrack) registerPlay(artistId);
   } catch (err) {
     alert(err.message);
   } finally {
@@ -247,7 +260,15 @@ function renderPublicArtists(activeGenre) {
         ${a.cover_image ? `<img src="${a.cover_image}" alt="Pochette de ${escapeHtml(a.nom)}">` : escapeHtml(initials(a.nom))}
       </div>
       <div class="artist-body">
-        <h3>${escapeHtml(a.nom)}</h3>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+          <h3>${escapeHtml(a.nom)}</h3>
+          <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+            <span class="plays-count" data-artist-id="${a.id}" style="font-family:var(--f-mono); font-size:12px; color:var(--text-muted);">🎧 ${a.plays || 0}</span>
+            <button type="button" class="like-btn ${isLiked(a.id) ? 'is-liked' : ''}" onclick="toggleLike(${a.id}, this)" aria-label="Aimer ce morceau">
+              <span class="like-heart">${isLiked(a.id) ? '♥' : '♡'}</span><span class="like-count">${a.likes || 0}</span>
+            </button>
+          </div>
+        </div>
         <span class="artist-genre">${escapeHtml(a.genre || '')}</span>
         <p class="bio">${escapeHtml(a.bio || 'Bio à venir.')}</p>
         ${a.has_track ? `
@@ -326,6 +347,51 @@ function renderPublicDrinks(activeCategory) {
   }).join('');
 }
 
+// --- Likes (public, sans compte) ---
+// Le navigateur retient localement ce que la personne a déjà aimé, pour
+// pouvoir afficher un cœur plein/vide et permettre de retirer son like.
+function getLikedIds() {
+  try { return JSON.parse(localStorage.getItem('sunny_liked_tracks') || '[]'); }
+  catch (_) { return []; }
+}
+function isLiked(id) { return getLikedIds().includes(id); }
+function setLikedIds(ids) {
+  try { localStorage.setItem('sunny_liked_tracks', JSON.stringify(ids)); } catch (_) { /* ignore */ }
+}
+
+async function toggleLike(artistId, btn) {
+  const liked = getLikedIds();
+  const wasLiked = liked.includes(artistId);
+  const nowLiked = !wasLiked;
+
+  const heartEl = btn.querySelector('.like-heart');
+  const countEl = btn.querySelector('.like-count');
+  const previousCount = parseInt(countEl.textContent, 10) || 0;
+
+  // Mise à jour immédiate à l'écran, avant même la réponse du serveur.
+  heartEl.textContent = nowLiked ? '♥' : '♡';
+  countEl.textContent = previousCount + (nowLiked ? 1 : -1);
+  btn.classList.toggle('is-liked', nowLiked);
+  btn.disabled = true;
+
+  try {
+    const res = await api(`/api/artists/${artistId}/like`, { method: 'POST', body: JSON.stringify({ liked: nowLiked }) });
+    countEl.textContent = res.likes;
+    if (nowLiked) liked.push(artistId);
+    else { const idx = liked.indexOf(artistId); if (idx > -1) liked.splice(idx, 1); }
+    setLikedIds(liked);
+    const cached = cachedArtists.find(a => a.id === artistId);
+    if (cached) cached.likes = res.likes;
+  } catch (err) {
+    // La requête a échoué : on annule le changement visuel.
+    heartEl.textContent = wasLiked ? '♥' : '♡';
+    countEl.textContent = previousCount;
+    btn.classList.toggle('is-liked', wasLiked);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* =========================================================
    FORMULAIRE DE CONTACT (public)
    ========================================================= */
@@ -368,6 +434,7 @@ const TAB_PERMISSION_MAP = {
   'panel-artists': 'artists',
   'panel-formules': 'formules',
   'panel-boissons': 'bar',
+  'panel-concerts': 'events',
   'panel-factures': 'factures',
   'panel-compta': 'compta',
 };
@@ -422,6 +489,7 @@ function initGestionPage() {
     if (canAccess('artists')) tasks.push(renderArtistsAdmin());
     if (canAccess('formules')) tasks.push(renderFormulesAdmin());
     if (canAccess('bar')) tasks.push(renderDrinksAdmin());
+    if (canAccess('events')) tasks.push(renderEventsAdmin());
     if (canAccess('factures')) tasks.push(renderInvoicesAdmin());
     if (canAccess('compta')) { tasks.push(renderStockAdmin()); tasks.push(renderTransactionsAdmin()); tasks.push(renderComptaSummary()); }
     if (currentSession.role === 'admin') tasks.push(renderAdminsAdmin());
@@ -524,7 +592,7 @@ async function renderArtistsAdmin() {
         ${escapeHtml(a.nom)}
       </td>
       <td>${escapeHtml(a.genre)}</td>
-      <td>${escapeHtml(a.statut)}</td>
+      <td>${escapeHtml(a.statut)} <span style="color:var(--text-muted);font-size:12px;">· ♥ ${a.likes || 0} · 🎧 ${a.plays || 0}</span></td>
       <td>${a.has_track
         ? `<div style="min-width:160px"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${escapeHtml(a.track_titre || 'Sans titre')}</div><button type="button" class="mini-btn play-btn" onclick="playArtistTrack(${a.id}, this)">▶ Aperçu</button></div>`
         : `<span style="color:var(--text-muted);font-size:13px">Aucun morceau</span>`}
@@ -679,6 +747,107 @@ function initStockAdminForm() {
       await api('/api/stock', { method: 'POST', body: JSON.stringify(data) });
       form.reset();
       renderStockAdmin();
+    } catch (err) { alert(err.message); }
+  });
+}
+
+/* =========================================================
+   CONCERTS / ÉVÉNEMENTS
+   ========================================================= */
+const MOIS_COURT = ['JANV', 'FÉVR', 'MARS', 'AVR', 'MAI', 'JUIN', 'JUIL', 'AOÛT', 'SEPT', 'OCT', 'NOV', 'DÉC'];
+
+function formatEventMeta(ev) {
+  const parts = [];
+  if (ev.heure) parts.push(ev.heure.slice(0, 5));
+  const lieuVille = [ev.lieu, ev.ville].filter(Boolean).join(', ');
+  if (lieuVille) parts.push(lieuVille);
+  return parts.join(' — ');
+}
+
+function renderEventCard(ev, isPast) {
+  const d = new Date(ev.date + 'T00:00:00');
+  const day = isNaN(d.getTime()) ? '?' : d.getDate();
+  const month = isNaN(d.getTime()) ? '' : MOIS_COURT[d.getMonth()];
+  return `
+    <article class="event-card ${isPast ? 'is-past' : ''}">
+      <div class="event-date-block"><div class="day">${day}</div><div class="month">${month}</div></div>
+      <div class="event-info">
+        <h3>${escapeHtml(ev.titre)}</h3>
+        ${formatEventMeta(ev) ? `<div class="event-meta">${escapeHtml(formatEventMeta(ev))}</div>` : ''}
+        ${ev.description ? `<p class="desc">${escapeHtml(ev.description)}</p>` : ''}
+        ${(!isPast && ev.billetterie_url) ? `<a href="${escapeHtml(ev.billetterie_url)}" target="_blank" rel="noopener" class="btn btn-outline" style="padding:9px 18px;font-size:13.5px;">Billetterie</a>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+async function initPublicEventsPage() {
+  const upcomingEl = document.getElementById('events-upcoming');
+  if (!upcomingEl) return;
+  const pastEl = document.getElementById('events-past');
+
+  upcomingEl.innerHTML = `<p style="color:var(--text-muted)">Chargement…</p>`;
+  let events;
+  try {
+    events = await api('/api/events');
+  } catch (err) {
+    upcomingEl.innerHTML = `<p style="color:var(--danger)">${escapeHtml(err.message)}</p>`;
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events.filter(e => e.date >= today);
+  const past = events.filter(e => e.date < today).sort((a, b) => b.date.localeCompare(a.date));
+
+  upcomingEl.innerHTML = upcoming.length
+    ? upcoming.map(ev => renderEventCard(ev, false)).join('')
+    : `<p style="color:var(--text-muted)">Aucun concert prévu pour le moment — revenez bientôt.</p>`;
+
+  if (pastEl) {
+    pastEl.innerHTML = past.length
+      ? `<div class="section-head" style="margin:44px 0 24px;"><span class="eyebrow">Archives</span><h2 style="font-size:22px; margin-top:8px;">Concerts passés</h2></div>` + past.map(ev => renderEventCard(ev, true)).join('')
+      : '';
+  }
+}
+
+/* --- Gestion des concerts (admin) --- */
+async function renderEventsAdmin() {
+  const tbody = document.getElementById('events-admin-body');
+  if (!tbody) return;
+  let list;
+  try {
+    list = await api('/api/events');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--danger)">${escapeHtml(err.message)}</td></tr>`;
+    return;
+  }
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text-muted)">Aucun événement pour le moment.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(ev => `
+    <tr>
+      <td>${escapeHtml(formatDateFr(ev.date))}${ev.heure ? ` · ${escapeHtml(ev.heure.slice(0,5))}` : ''}</td>
+      <td>${escapeHtml(ev.titre)}</td>
+      <td>${escapeHtml([ev.lieu, ev.ville].filter(Boolean).join(', ') || '—')}</td>
+      <td><button class="mini-btn danger" onclick="deleteEventAdmin(${ev.id})">Retirer</button></td>
+    </tr>
+  `).join('');
+}
+async function deleteEventAdmin(id) {
+  try { await api(`/api/events/${id}`, { method: 'DELETE' }); renderEventsAdmin(); }
+  catch (err) { alert(err.message); }
+}
+function initEventAdminForm() {
+  const form = document.getElementById('event-admin-form');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+    try {
+      await api('/api/events', { method: 'POST', body: JSON.stringify(data) });
+      form.reset();
+      renderEventsAdmin();
     } catch (err) { alert(err.message); }
   });
 }
@@ -1101,7 +1270,7 @@ async function renderComptaSummary() {
 }
 
 /* --- Comptes Gestion (admin) --- */
-const PERMISSION_LABELS = { messages: 'Contact', artists: 'Artistes', formules: 'Formules', bar: 'Bar', factures: 'Factures', compta: 'Comptabilité' };
+const PERMISSION_LABELS = { messages: 'Contact', artists: 'Artistes', formules: 'Formules', bar: 'Bar', factures: 'Factures', compta: 'Comptabilité', events: 'Concerts' };
 
 async function renderAdminsAdmin() {
   const tbody = document.getElementById('admins-body');
@@ -1219,6 +1388,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSoftNav();
   initPublicArtistsPage();
   initPublicBarPage();
+  initPublicEventsPage();
   initContactForm();
   initGestionPage();
   initArtistAdminForm();
@@ -1227,6 +1397,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initChangePasswordForm();
   initInvoiceForm();
   initDrinkAdminForm();
+  initEventAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();
 });
@@ -1296,6 +1467,7 @@ async function loadPageSoftly(href, pushState) {
 function reinitPageScripts() {
   initPublicArtistsPage();
   initPublicBarPage();
+  initPublicEventsPage();
   initContactForm();
   initGestionPage();
   initArtistAdminForm();
@@ -1304,6 +1476,7 @@ function reinitPageScripts() {
   initChangePasswordForm();
   initInvoiceForm();
   initDrinkAdminForm();
+  initEventAdminForm();
   initStockAdminForm();
   initTransactionAdminForm();
 }

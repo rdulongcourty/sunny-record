@@ -29,7 +29,7 @@ function requireAdmin(req, res, next) {
 }
 
 // Sections d'accès possibles pour un compte "Collaborateur" à droits limités.
-const PERMISSION_KEYS = ['messages', 'artists', 'formules', 'bar', 'compta', 'factures'];
+const PERMISSION_KEYS = ['messages', 'artists', 'formules', 'bar', 'compta', 'factures', 'events'];
 
 // Seuls les comptes "Administrateur" ont un accès total et peuvent gérer les
 // autres comptes ; un compte "Collaborateur" n'a que les sections cochées à
@@ -189,11 +189,35 @@ app.delete('/api/admins/:id', requireSuperAdmin, h(async (req, res) => {
 // vraiment sur "Écouter". La pochette (plus légère) reste incluse.
 app.get('/api/artists', h(async (req, res) => {
   const rows = await db.all(
-    `SELECT id, nom, genre, statut, bio, track_titre, cover_image, created_at,
+    `SELECT id, nom, genre, statut, bio, track_titre, cover_image, likes, plays, created_at,
             (track_data IS NOT NULL) AS has_track
      FROM artists ORDER BY created_at DESC`
   );
   res.json(rows);
+}));
+
+// Compteur d'écoutes — public, incrémenté à chaque lecture d'un morceau.
+app.post('/api/artists/:id/play', h(async (req, res) => {
+  await db.run('UPDATE artists SET plays = plays + 1 WHERE id = ?', [req.params.id]);
+  const row = await db.get('SELECT plays FROM artists WHERE id = ?', [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Artiste introuvable.' });
+  res.json({ plays: row.plays });
+}));
+
+// Like / retrait de like — public (aucune connexion requise), simple compteur.
+// Le navigateur du visiteur retient lui-même ce qu'il a déjà aimé (voir main.js),
+// pour permettre de "retirer" son like ; il n'y a pas de vérification anti-abus
+// plus poussée que ça, volontairement, pour rester simple.
+app.post('/api/artists/:id/like', h(async (req, res) => {
+  const { liked } = req.body;
+  if (liked) {
+    await db.run('UPDATE artists SET likes = likes + 1 WHERE id = ?', [req.params.id]);
+  } else {
+    await db.run('UPDATE artists SET likes = MAX(0, likes - 1) WHERE id = ?', [req.params.id]);
+  }
+  const row = await db.get('SELECT likes FROM artists WHERE id = ?', [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Artiste introuvable.' });
+  res.json({ likes: row.likes });
 }));
 
 // Récupère le morceau audio d'un artiste précis, uniquement au moment de l'écoute.
@@ -484,6 +508,29 @@ app.delete('/api/invoices/:id', requirePermission('factures'), h(async (req, res
     await db.run('DELETE FROM transactions WHERE id = ?', [invoice.transaction_id]);
   }
   await db.run('DELETE FROM invoices WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// ==================== CONCERTS / ÉVÉNEMENTS ====================
+// Lecture publique (page Concerts), gestion réservée aux comptes ayant le droit "events".
+app.get('/api/events', h(async (req, res) => {
+  res.json(await db.all('SELECT * FROM events ORDER BY date ASC'));
+}));
+
+app.post('/api/events', requirePermission('events'), h(async (req, res) => {
+  const { titre, date, heure, lieu, ville, billetterie_url, description } = req.body;
+  if (!titre || !date) return res.status(400).json({ error: 'Le titre et la date sont obligatoires.' });
+
+  const info = await db.run(
+    `INSERT INTO events (titre, date, heure, lieu, ville, billetterie_url, description)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [titre, date, heure || '', lieu || '', ville || '', billetterie_url || '', description || '']
+  );
+  res.json(await db.get('SELECT * FROM events WHERE id = ?', [info.lastInsertRowid]));
+}));
+
+app.delete('/api/events/:id', requirePermission('events'), h(async (req, res) => {
+  await db.run('DELETE FROM events WHERE id = ?', [req.params.id]);
   res.json({ ok: true });
 }));
 

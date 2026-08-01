@@ -19,6 +19,7 @@
       <a href="artistes.html">Artistes</a>
       <a href="formules.html">Formules</a>
       <a href="bar.html">Bar</a>
+      <a href="concerts.html">Concerts</a>
       <a href="contact.html">Contact</a>
       <a href="gestion.html" class="nav-cta active">Gestion</a>
     </div>
@@ -70,6 +71,7 @@
         <button class="admin-tab" data-target="panel-artists">Artistes</button>
         <button class="admin-tab" data-target="panel-formules">Formules</button>
         <button class="admin-tab" data-target="panel-boissons">Bar</button>
+        <button class="admin-tab" data-target="panel-concerts">Concerts</button>
         <button class="admin-tab" data-target="panel-factures">Factures</button>
         <button class="admin-tab" data-target="panel-compta">Comptabilité</button>
         <button class="admin-tab" data-target="panel-comptes">Comptes</button>
@@ -177,6 +179,7 @@
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="artists"> Artistes</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="formules"> Formules</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="bar"> Bar</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="events"> Concerts</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="factures"> Factures</label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:normal;"><input type="checkbox" name="permissions" value="compta"> Comptabilité</label>
               </div>
@@ -210,6 +213,24 @@
         <table class="data-table">
           <thead><tr><th>Boisson</th><th>Catégorie</th><th>Prix</th><th>Actions</th></tr></thead>
           <tbody id="drinks-admin-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Onglet : concerts -->
+      <div id="panel-concerts" class="admin-panel" style="margin-top:26px;">
+        <form id="event-admin-form" class="admin-form-grid">
+          <div class="field"><label for="e-titre">Titre de l'événement</label><input type="text" id="e-titre" name="titre" placeholder="Ex : The Horde Studio Night" required></div>
+          <div class="field"><label for="e-date">Date</label><input type="date" id="e-date" name="date" required></div>
+          <div class="field"><label for="e-heure">Heure (optionnel)</label><input type="time" id="e-heure" name="heure"></div>
+          <div class="field"><label for="e-lieu">Lieu (optionnel)</label><input type="text" id="e-lieu" name="lieu" placeholder="Ex : La Cave Noire"></div>
+          <div class="field"><label for="e-ville">Ville (optionnel)</label><input type="text" id="e-ville" name="ville" placeholder="Ex : Valenciennes"></div>
+          <div class="field"><label for="e-billetterie">Lien billetterie (optionnel)</label><input type="url" id="e-billetterie" name="billetterie_url" placeholder="https://..."></div>
+          <div class="field full"><label for="e-description">Description (optionnel)</label><textarea id="e-description" name="description" rows="2"></textarea></div>
+          <div class="full"><button type="submit" class="btn btn-gold">Ajouter l'événement</button></div>
+        </form>
+        <table class="data-table">
+          <thead><tr><th>Date</th><th>Titre</th><th>Lieu</th><th>Actions</th></tr></thead>
+          <tbody id="events-admin-body"></tbody>
         </table>
       </div>
 
