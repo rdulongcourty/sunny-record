@@ -1,0 +1,13 @@
+# Dépendances (réinstallées automatiquement par npm install / Render)
+node_modules/
+
+# Secrets — ne jamais publier ce fichier
+server/.env
+
+# Données locales de développement (base de test sans Turso) — sur un vrai
+# déploiement, les données vivent sur Turso, pas dans le code
+server/data/*.db
+server/data/*.db-*
+
+# Fichiers système
+.DS_Store
